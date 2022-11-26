@@ -29,7 +29,7 @@ def build_model():
 
     '''
     We need to replace the decoder with a diffusion model here to reconstruct the input and train the model jointly 
-    to optimize the parameters all the models!
+    to optimize the parameters of all the models!
     '''
     
     compressed_feature_renorm = feature / recon_sigma
