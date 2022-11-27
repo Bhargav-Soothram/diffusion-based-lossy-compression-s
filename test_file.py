@@ -16,30 +16,32 @@ from utils import *
 
 def build_model():
     # input_image = img_tensor
-    input_image = torch.zeros([7, 3, 256, 256])
+    input_image = torch.zeros([7, 512, 16, 16])
+    transformed = torch.nn.functional.interpolate(input_image, scale_factor=2.0, mode="nearest")
+    print(transformed.shape)
 
-    analysis_transform = AnalysisTransform()
-    hyper_analysis_transform = HyperAnalysisTransform()
-    hyper_synthesis_transform = HyperSynthesisTransform()
+    # analysis_transform = AnalysisTransform()
+    # hyper_analysis_transform = HyperAnalysisTransform()
+    # hyper_synthesis_transform = HyperSynthesisTransform()
 
-    feature = analysis_transform(input_image)   # encoder for encoding inputs into their latent vectors
-    z = hyper_analysis_transform(feature)   # hyper-latents
-    compressed_z = torch.round(z)   # quantized hyper-latents
-    recon_sigma = hyper_synthesis_transform(compressed_z)   # hyper-decoder for decoding the hyper-latents
+    # feature = analysis_transform(input_image)   # encoder for encoding inputs into their latent vectors
+    # z = hyper_analysis_transform(feature)   # hyper-latents
+    # compressed_z = torch.round(z)   # quantized hyper-latents
+    # recon_sigma = hyper_synthesis_transform(compressed_z)   # hyper-decoder for decoding the hyper-latents
 
-    '''
-    We need to replace the decoder with a diffusion model here to reconstruct the input and train the model jointly 
-    to optimize the parameters of all the models!
-    '''
+    # '''
+    # We need to replace the decoder with a diffusion model here to reconstruct the input and train the model jointly 
+    # to optimize the parameters of all the models!
+    # '''
     
-    compressed_feature_renorm = feature / recon_sigma
-    compressed_feature_renorm = torch.round(compressed_feature_renorm)
-    compressed_feature_denorm = compressed_feature_renorm * recon_sigma
+    # compressed_feature_renorm = feature / recon_sigma
+    # compressed_feature_renorm = torch.round(compressed_feature_renorm)
+    # compressed_feature_denorm = compressed_feature_renorm * recon_sigma
     
-    print("input_image : ", input_image.size())
-    print("feature : ", feature.size())
-    print("z : ", z.size())
-    print("recon_sigma : ", recon_sigma.size())
+    # print("input_image : ", input_image.size())
+    # print("feature : ", feature.size())
+    # print("z : ", z.size())
+    # print("recon_sigma : ", recon_sigma.size())
 
     
 if __name__ == '__main__':

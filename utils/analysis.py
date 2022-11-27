@@ -8,7 +8,7 @@ class AnalysisTransform(nn.Module):
     """
     Encoder or Analysis Transform; transforms images into their respective latent representations.
     """
-    def __init__(self, out_channel_N=192, out_channel_M=320):
+    def __init__(self, out_channel_N=128, out_channel_M=4*128):
         super(AnalysisTransform, self).__init__()
 
         # First encoding layer: ENC1

@@ -7,7 +7,7 @@ class HyperSynthesisTransform(nn.Module):
     """
     Hyper Decoder or Hyper Synthesis Transform; reconstructs latents from the encoded latents.
     """
-    def __init__(self, out_channel_N=192, out_channel_M=320):
+    def __init__(self, out_channel_N=128, out_channel_M=4*128):
         super(HyperSynthesisTransform, self).__init__()
         
         # Deconvolution1

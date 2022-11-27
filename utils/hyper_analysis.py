@@ -8,7 +8,7 @@ class HyperAnalysisTransform(nn.Module):
     """
     Hyper Encoder or Hyper Analysis Transform; extracts important information from the latents themselves.
     """
-    def __init__(self, out_channel_N=192, out_channel_M=320):
+    def __init__(self, out_channel_N=128, out_channel_M=128*4):
         super(HyperAnalysisTransform, self).__init__()
 
         # Convolution1
