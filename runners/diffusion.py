@@ -240,3 +240,145 @@ class Diffusion(object):
             self.sample_sequence(model)
         else:
             raise NotImplementedError("Sample procedeure not defined")
+
+    def sample_fid(self, model):
+        config = self.config
+        img_id = len(glob.glob(f"{self.args.image_folder}/*"))
+        print(f"starting from image {img_id}")
+        total_n_samples = 50000
+        n_rounds = (total_n_samples - img_id) // config.sampling.batch_size
+
+        with torch.no_grad():
+            for _ in tqdm.tqdm(
+                range(n_rounds), desc="Generating image samples for FID evaluation."
+            ):
+                n = config.sampling.batch_size
+                x = torch.randn(
+                    n,
+                    config.data.channels,
+                    config.data.image_size,
+                    config.data.image_size,
+                    device=self.device,
+                )
+
+                x = self.sample_image(x, model)
+                x = inverse_data_transform(config, x)
+
+                for i in range(n):
+                    tvu.save_image(
+                        x[i], os.path.join(self.args.image_folder, f"{img_id}.png")
+                    )
+                    img_id += 1
+
+    def sample_sequence(self, model):
+        config = self.config
+
+        x = torch.randn(
+            8,
+            config.data.channels,
+            config.data.image_size,
+            config.data.image_size,
+            device=self.device,
+        )
+
+        # NOTE: This means that we are producing each predicted x0, not x_{t-1} at timestep t.
+        with torch.no_grad():
+            _, x = self.sample_image(x, model, last=False)
+
+        x = [inverse_data_transform(config, y) for y in x]
+
+        for i in range(len(x)):
+            for j in range(x[i].size(0)):
+                tvu.save_image(
+                    x[i][j], os.path.join(self.args.image_folder, f"{j}_{i}.png")
+                )
+
+    def sample_interpolation(self, model):
+        config = self.config
+
+        def slerp(z1, z2, alpha):
+            theta = torch.acos(torch.sum(z1 * z2) / (torch.norm(z1) * torch.norm(z2)))
+            return (
+                torch.sin((1 - alpha) * theta) / torch.sin(theta) * z1
+                + torch.sin(alpha * theta) / torch.sin(theta) * z2
+            )
+
+        z1 = torch.randn(
+            1,
+            config.data.channels,
+            config.data.image_size,
+            config.data.image_size,
+            device=self.device,
+        )
+        z2 = torch.randn(
+            1,
+            config.data.channels,
+            config.data.image_size,
+            config.data.image_size,
+            device=self.device,
+        )
+        alpha = torch.arange(0.0, 1.01, 0.1).to(z1.device)
+        z_ = []
+        for i in range(alpha.size(0)):
+            z_.append(slerp(z1, z2, alpha[i]))
+
+        x = torch.cat(z_, dim=0)
+        xs = []
+
+        # Hard coded here, modify to your preferences
+        with torch.no_grad():
+            for i in range(0, x.size(0), 8):
+                xs.append(self.sample_image(x[i : i + 8], model))
+        x = inverse_data_transform(config, torch.cat(xs, dim=0))
+        for i in range(x.size(0)):
+            tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
+
+    def sample_image(self, x, model, last=True):
+        try:
+            skip = self.args.skip
+        except Exception:
+            skip = 1
+
+        if self.args.sample_type == "generalized":
+            if self.args.skip_type == "uniform":
+                skip = self.num_timesteps // self.args.timesteps
+                seq = range(0, self.num_timesteps, skip)
+            elif self.args.skip_type == "quad":
+                seq = (
+                    np.linspace(
+                        0, np.sqrt(self.num_timesteps * 0.8), self.args.timesteps
+                    )
+                    ** 2
+                )
+                seq = [int(s) for s in list(seq)]
+            else:
+                raise NotImplementedError
+            from functions.denoising import generalized_steps
+
+            xs = generalized_steps(x, seq, model, self.betas, eta=self.args.eta)
+            x = xs
+        elif self.args.sample_type == "ddpm_noisy":
+            if self.args.skip_type == "uniform":
+                skip = self.num_timesteps // self.args.timesteps
+                seq = range(0, self.num_timesteps, skip)
+            elif self.args.skip_type == "quad":
+                seq = (
+                    np.linspace(
+                        0, np.sqrt(self.num_timesteps * 0.8), self.args.timesteps
+                    )
+                    ** 2
+                )
+                seq = [int(s) for s in list(seq)]
+            else:
+                raise NotImplementedError
+            from functions.denoising import ddpm_steps
+
+            x = ddpm_steps(x, seq, model, self.betas)
+        else:
+            raise NotImplementedError
+        if last:
+            x = x[0][-1]
+        return x
+
+    def test(self):
+        pass
