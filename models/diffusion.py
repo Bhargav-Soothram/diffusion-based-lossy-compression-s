@@ -496,9 +496,9 @@ class Model(nn.Module):
         temb = self.temb.dense[1](temb)
 
         # encoding the actual image for conditioning
-        z = None
+        z = self.conv_in(x_original)
         for i_level in range(len(self.encoder)):
-            z = self.encoder[i_level].block(x_original, temb=None, semb=None)
+            z = self.encoder[i_level].block(z, temb=None, semb=None)
             z = self.encoder[i_level].downsample(z)
 
         hyper_analysis_transform = HyperAnalysisTransform()
