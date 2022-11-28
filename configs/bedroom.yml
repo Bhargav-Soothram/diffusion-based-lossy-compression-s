@@ -11,7 +11,7 @@ data:
     num_workers: 32
 
 model:
-    type: "simple"
+    type: "rd"
     in_channels: 3
     out_ch: 3
     ch: 128
