@@ -499,7 +499,8 @@ class Model(nn.Module):
         z = self.conv_in(x_original)
         for i_level in range(len(self.encoder)):
             z = self.encoder[i_level].block(z, temb=None, semb=None)
-            z = self.encoder[i_level].downsample(z)
+            if i_level != len(self.encoder_ch)-1:
+                z = self.encoder[i_level].downsample(z)
 
         hyper_analysis_transform = HyperAnalysisTransform()
         y = hyper_analysis_transform(z) # hyper-latents
