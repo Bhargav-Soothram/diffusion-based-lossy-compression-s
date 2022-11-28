@@ -586,24 +586,24 @@ def build_model():
     input_image = torch.zeros([7, 512, 16, 16])
     # transformed = torch.nn.functional.interpolate(input_image, scale_factor=2.0, mode="nearest")
     
-    input_image = torch.zeros([7, 3, 256, 256])
-    transformed = torch.nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3, stride=1, padding=1)(input_image)
-    print(transformed.shape)
+    input_image = torch.zeros([128, 256, 4, 4])
+    # transformed = torch.nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3, stride=1, padding=1)(input_image)
+    # print(transformed.shape)
 
-    with open("configs/sample.yml") as f:
-        config = yaml.safe_load(f)
-    new_config = dict2namespace(config)
-    model = Model(config=new_config)
-    print(model)
+    # with open("configs/sample.yml") as f:
+    #     config = yaml.safe_load(f)
+    # new_config = dict2namespace(config)
+    # model = Model(config=new_config)
+    # print(model)
 
     # analysis_transform = AnalysisTransform()
-    # hyper_analysis_transform = HyperAnalysisTransform()
-    # hyper_synthesis_transform = HyperSynthesisTransform()
+    hyper_analysis_transform = HyperAnalysisTransform(out_channel_N=256, out_channel_M=256)
+    hyper_synthesis_transform = HyperSynthesisTransform(out_channel_N=256, out_channel_M=256)
 
     # feature = analysis_transform(input_image)   # encoder for encoding inputs into their latent vectors
-    # z = hyper_analysis_transform(feature)   # hyper-latents
-    # compressed_z = torch.round(z)   # quantized hyper-latents
-    # recon_sigma = hyper_synthesis_transform(compressed_z)   # hyper-decoder for decoding the hyper-latents
+    z = hyper_analysis_transform(input_image)   # hyper-latents
+    compressed_z = torch.round(z)   # quantized hyper-latents
+    recon_sigma = hyper_synthesis_transform(compressed_z)   # hyper-decoder for decoding the hyper-latents
 
     # '''
     # We need to replace the decoder with a diffusion model here to reconstruct the input and train the model jointly 
@@ -614,10 +614,12 @@ def build_model():
     # compressed_feature_renorm = torch.round(compressed_feature_renorm)
     # compressed_feature_denorm = compressed_feature_renorm * recon_sigma
     
-    # print("input_image : ", input_image.size())
+    print("input_image : ", input_image.size())
     # print("feature : ", feature.size())
-    # print("z : ", z.size())
-    # print("recon_sigma : ", recon_sigma.size())
+    print("z : ", z.size())
+    print("recon_sigma : ", recon_sigma.size())
+
+    print((1,)+tuple([1, 2]))
 
     
 if __name__ == '__main__':

@@ -34,6 +34,11 @@ def Normalize(in_channels):
     return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 
+def quantize(x):
+    uniform = -1 * torch.rand(x.shape) + 1/2
+    return x + uniform
+
+
 class Upsample(nn.Module):
     def __init__(self, in_channels, with_conv):
         super().__init__()
@@ -343,6 +348,53 @@ class AttnBlock(nn.Module):
 #         return h
 
 
+class MaskedConv2d(nn.Conv2d):
+	'''
+	Implementation of the Masked convolution from the paper
+	Van den Oord, Aaron, et al. "Conditional image generation with pixelcnn decoders." Advances in neural information processing systems. 2016.
+	https://arxiv.org/pdf/1606.05328.pdf
+
+	'''
+	def __init__(self, mask_type, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		assert mask_type in ('A', 'B')
+		self.register_buffer('mask', self.weight.data.clone())
+		_, _, kH, kW = self.weight.size()
+		self.mask.fill_(1)
+		self.mask[:, :, kH // 2, kW // 2 + (mask_type == 'B'):] = 0
+		self.mask[:, :, kH // 2 + 1:] = 0
+
+	def forward(self, x):
+		self.weight.data *= self.mask
+		return super(MaskedConv2d, self).forward(x)
+
+
+class ContextPrediction(nn.Module):
+	def __init__(self, dim_in):
+		super(ContextPrediction, self).__init__()
+		self.masked = MaskedConv2d("A", in_channels=dim_in, out_channels=256, kernel_size=5, stride=1, padding=2)
+	
+	def forward(self, x):
+		return self.masked(x)
+
+
+class EntropyParameters(nn.Module):
+	def __init__(self, dim_in):
+		super(EntropyParameters, self).__init__()
+		
+		self.conv1 = nn.Conv2d(in_channels=dim_in, out_channels=512, kernel_size=1, stride=1)
+		self.conv2 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, stride=1)
+		self.conv3 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1, stride=1)
+	
+	def forward(self, x):
+		x = self.conv1(x)
+		x = nn.LeakyReLU()(x)
+		x = self.conv2(x)
+		x = nn.LeakyReLU()(x)
+		x = self.conv3(x)
+		return x
+
+
 # New model class that includes semantic embeddings
 class Model(nn.Module):
     def __init__(self, config):
@@ -369,6 +421,10 @@ class Model(nn.Module):
         self.resolution = resolution
         self.in_channels = in_channels
 
+        # defining context and entropy models
+        self.context = ContextPrediction(256)
+        self.entropy = EntropyParameters(512)
+        
         # timestep embedding
         self.temb = nn.Module()
         self.temb.dense = nn.ModuleList([
@@ -382,32 +438,31 @@ class Model(nn.Module):
         self.encoder = nn.ModuleList()
         in_encoder_ch = (1,)+self.encoder_ch
         for i_level in range(len(self.encoder_ch)):
-            enc_block_in = ch*in_encoder_ch[i_level]
-            enc_block_out = ch*self.encoder_ch[i_level]
+            block_in = ch*in_encoder_ch[i_level]
+            block_out = ch*self.encoder_ch[i_level]
             enc_block = nn.Module()
-            enc_block.block = ResnetBlock(in_channels=enc_block_in,
-                                         out_channels=enc_block_out,
+            enc_block.block = ResnetBlock(in_channels=block_in,
+                                         out_channels=block_out,
                                          temb_channels=self.temb_ch, 
                                          dropout=dropout)
-            enc_block_in = enc_block_out
+            block_in = block_out
             if i_level != len(self.encoder_ch)-1:
-                enc_block.downsample = Downsample(enc_block_in, resamp_with_conv)
+                enc_block.downsample = Downsample(block_in, resamp_with_conv)
             self.encoder.append(enc_block)
                 
-        # embedder block
+        # embedder blocki
         self.embedder = nn.ModuleList()
         for i_level in reversed(range(len(self.encoder_ch))):
-            emb_block_in = ch*in_encoder_ch[i_level]
-            emb_block_out = ch*self.encoder_ch[i_level]
+            block_out = ch*self.encoder_ch[i_level]
             emb_block = nn.Module()
-            emb_block.block = ResnetBlock(in_channels=emb_block_in,
-                                         out_channels=emb_block_out,
+            emb_block.block = ResnetBlock(in_channels=block_in,
+                                         out_channels=block_out,
                                          temb_channels=self.temb_ch, 
                                          dropout=dropout)
-            emb_block_in = emb_block_out
-            if i_level != 0:
-                emb_block.upsample = Upsample(enc_block_in, resamp_with_conv)
-            self.embedder.append(emb_block)
+            block_in = block_out
+            if i_level != len(self.encoder_ch)-1:
+                emb_block.upsample = Upsample(block_in, resamp_with_conv)
+            self.embedder.insert(0, emb_block)
 
         # downsampling
         self.conv_in = torch.nn.Conv2d(in_channels,
@@ -486,6 +541,7 @@ class Model(nn.Module):
                                         stride=1,
                                         padding=1)
 
+
     def forward(self, x, x_original, t):
         assert x.shape[2] == x.shape[3] == self.resolution
 
@@ -496,33 +552,49 @@ class Model(nn.Module):
         temb = self.temb.dense[1](temb)
 
         # encoding the actual image for conditioning
-        z = self.conv_in(x_original)
+        y = self.conv_in(x_original)
         for i_level in range(len(self.encoder)):
-            z = self.encoder[i_level].block(z, temb=None, semb=None)
+            y = self.encoder[i_level].block(y, temb=None, semb=None)
             if i_level != len(self.encoder_ch)-1:
-                z = self.encoder[i_level].downsample(z)
+                y = self.encoder[i_level].downsample(y)
 
-        hyper_analysis_transform = HyperAnalysisTransform()
-        y = hyper_analysis_transform(z) # hyper-latents
+        y_hat = quantize(y)
 
-        compressed_y = torch.round(y) # quantized hyper-latents
+        hyper_analysis_transform = HyperAnalysisTransform(256, 256)
+        z = hyper_analysis_transform(y) # hyper-latents
+
+        z_hat = quantize(z) # quantized hyper-latents
         
-        hyper_synthesis_transform = HyperSynthesisTransform()
-        z_hat = hyper_synthesis_transform(compressed_y) # reconstructed latents
+        phi = self.context(y_hat)
+        hyper_synthesis_transform = HyperSynthesisTransform(256, 256)
+        psi = hyper_synthesis_transform(z_hat) # reconstructed latents
+        
+        phi_psi = torch.cat([phi, psi], dim=1)
+
+        sigma_mu = self.entropy(phi_psi)
+        print("y_hat.shape:", y_hat.shape)
+        sigma, mu = torch.split(sigma_mu, y_hat.shape[1], dim=1)
+
+        sigma = torch.clamp(sigma, min=1e-6)
 
         # semantic embedding
-        z_recon = [z_hat] # from the encoder, to be coded!
-        for i_level in range(len(self.encoder)):
-            z_h = self.embedder[i_level].block(z_recon[-1], temb=None, semb=None)
-            z_h = self.embedder[i_level].upsample(z_h)
-            z_recon.append(z_h)
-
+        embs = [y_hat] # from the encoder, to be coded!
+        for i_level in reversed(range(len(self.encoder))):
+            emb = self.embedder[i_level].block(embs[0], temb=None, semb=None)
+            if i_level != len(self.encoder)-1:
+                emb = self.embedder[i_level].upsample(emb)
+            embs.insert(0, emb)
+        embs = embs[:-1]
+        
         # downsampling
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
-                if i_level < len(z_recon):
-                    h = self.down[i_level].block[i_block](hs[-1], temb, z_recon[i_level])
+                if i_level < len(embs):
+                    if i_block == 0:
+                        h = self.down[i_level].block[i_block](hs[-1], temb, embs[i_level])
+                    else:
+                        h = self.down[i_level].block[i_block](hs[-1], temb, None)
                 else:
                     h = self.down[i_level].block[i_block](hs[-1], temb, None)
                 if len(self.down[i_level].attn) > 0:
@@ -551,4 +623,4 @@ class Model(nn.Module):
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
-        return h
+        return h, sigma, mu, y_hat, z_hat
