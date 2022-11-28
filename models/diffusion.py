@@ -395,7 +395,6 @@ class Model(nn.Module):
             self.encoder.append(enc_block)
                 
         # embedder block
-        in_ch_mult = (1,)+ch_mult
         self.embedder = nn.ModuleList()
         for i_level in reversed(range(len(self.encoder_ch))):
             emb_block_in = ch*in_encoder_ch[i_level]
