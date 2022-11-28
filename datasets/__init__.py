@@ -4,6 +4,9 @@ import numbers
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from torchvision.datasets import CIFAR10
+from datasets.celeba import CelebA
+from datasets.ffhq import FFHQ
+from datasets.lsun import LSUN
 from torch.utils.data import Subset
 import numpy as np
 
@@ -55,6 +58,123 @@ def get_dataset(args, config):
             transform=test_transform,
         )
 
+    elif config.data.dataset == "CELEBA":
+        cx = 89
+        cy = 121
+        x1 = cy - 64
+        x2 = cy + 64
+        y1 = cx - 64
+        y2 = cx + 64
+        if config.data.random_flip:
+            dataset = CelebA(
+                root=os.path.join(args.exp, "datasets", "celeba"),
+                split="train",
+                transform=transforms.Compose(
+                    [
+                        Crop(x1, x2, y1, y2),
+                        transforms.Resize(config.data.image_size),
+                        transforms.RandomHorizontalFlip(),
+                        transforms.ToTensor(),
+                    ]
+                ),
+                download=True,
+            )
+        else:
+            dataset = CelebA(
+                root=os.path.join(args.exp, "datasets", "celeba"),
+                split="train",
+                transform=transforms.Compose(
+                    [
+                        Crop(x1, x2, y1, y2),
+                        transforms.Resize(config.data.image_size),
+                        transforms.ToTensor(),
+                    ]
+                ),
+                download=True,
+            )
+
+        test_dataset = CelebA(
+            root=os.path.join(args.exp, "datasets", "celeba"),
+            split="test",
+            transform=transforms.Compose(
+                [
+                    Crop(x1, x2, y1, y2),
+                    transforms.Resize(config.data.image_size),
+                    transforms.ToTensor(),
+                ]
+            ),
+            download=True,
+        )
+
+    elif config.data.dataset == "LSUN":
+        train_folder = "{}_train".format(config.data.category)
+        val_folder = "{}_val".format(config.data.category)
+        if config.data.random_flip:
+            dataset = LSUN(
+                root=os.path.join(args.exp, "datasets", "lsun"),
+                classes=[train_folder],
+                transform=transforms.Compose(
+                    [
+                        transforms.Resize(config.data.image_size),
+                        transforms.CenterCrop(config.data.image_size),
+                        transforms.RandomHorizontalFlip(p=0.5),
+                        transforms.ToTensor(),
+                    ]
+                ),
+            )
+        else:
+            dataset = LSUN(
+                root=os.path.join(args.exp, "datasets", "lsun"),
+                classes=[train_folder],
+                transform=transforms.Compose(
+                    [
+                        transforms.Resize(config.data.image_size),
+                        transforms.CenterCrop(config.data.image_size),
+                        transforms.ToTensor(),
+                    ]
+                ),
+            )
+
+        test_dataset = LSUN(
+            root=os.path.join(args.exp, "datasets", "lsun"),
+            classes=[val_folder],
+            transform=transforms.Compose(
+                [
+                    transforms.Resize(config.data.image_size),
+                    transforms.CenterCrop(config.data.image_size),
+                    transforms.ToTensor(),
+                ]
+            ),
+        )
+
+    elif config.data.dataset == "FFHQ":
+        if config.data.random_flip:
+            dataset = FFHQ(
+                path=os.path.join(args.exp, "datasets", "FFHQ"),
+                transform=transforms.Compose(
+                    [transforms.RandomHorizontalFlip(p=0.5), transforms.ToTensor()]
+                ),
+                resolution=config.data.image_size,
+            )
+        else:
+            dataset = FFHQ(
+                path=os.path.join(args.exp, "datasets", "FFHQ"),
+                transform=transforms.ToTensor(),
+                resolution=config.data.image_size,
+            )
+
+        num_items = len(dataset)
+        indices = list(range(num_items))
+        random_state = np.random.get_state()
+        np.random.seed(2019)
+        np.random.shuffle(indices)
+        np.random.set_state(random_state)
+        train_indices, test_indices = (
+            indices[: int(num_items * 0.9)],
+            indices[int(num_items * 0.9) :],
+        )
+        test_dataset = Subset(dataset, test_indices)
+        dataset = Subset(dataset, train_indices)
     else:
         dataset, test_dataset = None, None
 
